@@ -11,7 +11,8 @@ unsigned long duration = 0;
 bool data_bit = false;
 int index = 0;
 
-const int n_bits = 59;
+// 59 bits normally, one more during leap seconds
+const int n_bits = 60;
 bool data[n_bits];
 
 
@@ -52,7 +53,7 @@ void loop() {
         if (previous_start != 0 && (start - previous_start) > 1500) {
             Serial.println("New minute");
             // we got all data
-            if (index == 59) {
+            if (index >= 59) {
                 sendData();
             }
             reset();
@@ -63,11 +64,13 @@ void loop() {
         // 100 ms for 0, 200 ms for 1;
         data_bit = duration > 150;
         data[index] = data_bit;
-        index++;
+
         Serial.print(start - first);
         Serial.print(" ");
         Serial.print(index);
         Serial.print(" ");
         Serial.println(data_bit);
+
+        index++;
     }
 }

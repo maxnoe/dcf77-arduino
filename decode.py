@@ -1,7 +1,9 @@
 import serial
 from datetime import datetime
 from argparse import ArgumentParser
+from zoneinfo import ZoneInfo
 
+CET = ZoneInfo("CET")
 
 parser = ArgumentParser()
 parser.add_argument("device")
@@ -10,6 +12,10 @@ parser.add_argument("-b", "--baud-rate", type=int, default=9600)
 
 def bits(value, first, n_bits):
     return (value >> first) & ((1 << n_bits) - 1)
+
+
+def bit(value, pos):
+    return bool(value & (1 << pos))
 
 
 def check_parity(value, first, n_bits, field):
@@ -22,6 +28,8 @@ def check_parity(value, first, n_bits, field):
 
 def decode(data):
     val = int(data, base=2)
+    if bit(val, 0):
+        raise ValueError("Bit 0 set, should always be 0")
 
     b = lambda first, n_bits: bits(val, first, n_bits)
 
@@ -36,7 +44,23 @@ def decode(data):
     month = b(45, 4) + 10 * b(49, 1)
     year = 2000 + b(50, 4) + 10 * b(54, 4)
 
-    return datetime(year, month, day, hour, minute)
+    cest = bit(val, 17)
+    cet = bit(val, 18)
+    if cest and cet:
+        raise ValueError("CEST and CET bit set")
+
+    timezone = "CET" if cet else "CEST"
+
+    if not bit(val, 20):
+        raise ValueError("Bit 20 not set, should always be 1")
+
+    return {
+        "time": datetime(year, month, day, hour, minute, tzinfo=CET),
+        "timezone": timezone,
+        "call_bit": bit(val, 15),
+        "dst_switch": bit(val, 16),
+        "imminent_leap_second": bit(val, 19)
+    }
 
 
 def main(args=None):
@@ -52,14 +76,17 @@ def main(args=None):
 
             print(line)
             if line.startswith("data:"):
-                time = decode(line.removeprefix("data:"))
-                print(time.isoformat())
+                data = decode(line.removeprefix("data:"))
+                time = data.pop("time")
+                print(time.isoformat(), data)
 
 
 def test_decode():
     line = "10010010000101111010010000100101010110100100001101010011010"
-    expected = datetime.fromisoformat("2024-05-12T09:56:00")
-    assert decode(line) == expected
+    expected = datetime.fromisoformat("2024-05-12T09:56:00+02:00")
+
+    result = decode(line)
+    assert result["time"] == expected
 
 
 def test_broken():
